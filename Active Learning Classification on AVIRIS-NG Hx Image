@@ -1,0 +1,661 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Apr 27 00:42:15 2023
+
+@author: RAMBABU
+"""
+
+
+import os
+os.chdir('D:/rambabu_r@nrsc.gov.in/STUDY/MTECH/IIST GeoInformatics/2 SEM/HyperSpectral RS/LAB/Python/Anand_Gujarat')
+#$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+
+# ANAND Hyperspectral data Analysis and Active Learning based classification 
+
+#$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+from modAL.uncertainty import uncertainty_sampling
+from modAL.models import ActiveLearner
+from sklearn.metrics import classification_report, confusion_matrix
+import numpy as np
+import matplotlib.pyplot as plt
+import scipy.io
+import rasterio
+from sklearn.decomposition import PCA
+#-----------------------------------------------------------
+# Import libraries
+from osgeo import gdal
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
+import numpy as np
+
+#-----------------------------------
+import rasterio
+import numpy as np
+from sklearn.decomposition import PCA
+#$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+#Applying PCA
+# Read the hyperspectral image using rasterio
+with rasterio.open('Anand.tif') as src:
+    img = src.read()
+    img = np.transpose(img, (1, 2, 0)) # Transpose to (rows, cols, bands)
+
+# Flatten the image to 2D array (rows*cols, bands)
+rows, cols, bands = img.shape
+img_flat = img.reshape(rows * cols, bands)
+
+# Apply PCA to reduce the dimensionality
+n_components = 10 # Number of components to keep
+pca = PCA(n_components=n_components)
+img_pca = pca.fit_transform(img_flat)
+
+# Calculate the cumulative explained variance
+explained_variance_ratio = pca.explained_variance_ratio_
+
+cumulative_variance_ratio = np.cumsum(explained_variance_ratio)
+
+# Plot the cumulative explained variance
+import matplotlib.pyplot as plt
+plt.plot(cumulative_variance_ratio)
+plt.xlabel('Number of Principal Components')
+plt.ylabel('Cumulative Explained Variance Ratio')
+plt.show()
+
+plt.figure(figsize=[10,5])
+plt.title('Cumulative Explained Variance by Component', fontsize=20)
+plt.ylabel('Cumulative Explained Variance', fontsize=20)
+plt.xlabel('Principal Component', fontsize=20)
+plt.plot(range(1, 11), cumulative_variance_ratio)
+plt.show()
+
+
+#===============================================================================
+#Applying PCA and Visualisation of PCA bands
+
+file = os.path.join('Anand.tif')
+img_open = gdal.Open(file)
+img_red = img_open.GetRasterBand(57).ReadAsArray()
+plt.rcParams['figure.figsize'] = [2, 12]
+plt.rcParams['figure.dpi'] = 100
+plt.imshow(img_red, vmin=0, vmax=0.2)
+plt.colorbar()
+plt.show()
+
+cols = img_open.RasterXSize
+rows = img_open.RasterYSize
+
+# Get the number of bands
+bands = img_open.RasterCount
+
+print('Shape of the raster: ', rows, 'x', cols, 'x', bands)
+
+img_open = gdal.Open(file)
+red = img_open.GetRasterBand(57).ReadAsArray()
+nir = img_open.GetRasterBand(99).ReadAsArray()
+
+mask = np.ones(np.shape(red))
+mask[red == -9999] = 0
+
+plt.imshow(mask)
+plt.show()
+# # Perform a PCA transormation on the image
+
+# Create a new array based on the number of good bands and pixels in the image
+# Load all of the good band data into a new array
+bblist = np.ones((372,))
+pixels = np.count_nonzero(mask)
+bands = np.count_nonzero(bblist)
+img_vals = np.zeros((bands, pixels)).astype(int)
+
+# Load each band in individually (This may take a minute)
+j = 0
+for i in range(0, len(bblist)):
+    if bblist[i] == 1:
+        
+        # Reduce the memory needed by loading only masked values in as integers
+        img_vals[j] = ((img_open.GetRasterBand(i+1).ReadAsArray()[mask == 1])*100000).astype(int)
+        j += 1
+
+from sklearn.decomposition import PCA
+
+# Reorder the axes to feed into the PCA function (samples, components)
+# This also may take a minute
+img_vals = np.rollaxis(img_vals, 1)
+n_components = 10
+pca = PCA(n_components=n_components)
+pca.fit(img_vals)
+img_pca = pca.transform(img_vals)
+
+
+# Map the PCA output back into the 3D array
+pca_bands = np.zeros((n_components, rows, cols))
+np.shape(img_pca)
+pca_bands[:, mask == 1] = np.rollaxis(img_pca, 1)
+
+# Plot the cumulative explained variance by component
+var_cumu = np.cumsum(pca.explained_variance_ratio_)*100
+
+plt.figure(figsize=[10,5])
+plt.title('Cumulative Explained Variance by Component', fontsize=20)
+plt.ylabel('Cumulative Explained Variance (%)', fontsize=20)
+plt.xlabel('Principal Component', fontsize=20)
+plt.plot(range(1, 11), var_cumu)
+plt.show()
+
+print(var_cumu)
+
+# subplot(r,c) provide the no. of rows and columns
+f, axarr = plt.subplots(1,10)
+# use the created array to output your multiple images
+axarr[0].imshow(pca_bands[0], cmap='jet')
+axarr[0].axis('off')
+axarr[1].imshow(pca_bands[1], cmap='jet')
+axarr[1].axis('off')
+axarr[2].imshow(pca_bands[2], cmap='jet')
+axarr[2].axis('off')
+axarr[3].imshow(pca_bands[3], cmap='jet')
+axarr[3].axis('off')
+axarr[4].imshow(pca_bands[4], cmap='jet')
+axarr[4].axis('off')
+axarr[5].imshow(pca_bands[5], cmap='jet')
+axarr[5].axis('off')
+axarr[6].imshow(pca_bands[6], cmap='jet')
+axarr[6].axis('off')
+axarr[7].imshow(pca_bands[7], cmap='jet')
+axarr[7].axis('off')
+axarr[8].imshow(pca_bands[8], cmap='jet')
+axarr[8].axis('off')
+axarr[9].imshow(pca_bands[9], cmap='jet')
+axarr[9].axis('off')
+plt.show()
+
+# Select the PCA bands that together explain >99.9% of the image's varianc
+pca_results = pca_bands[0:6]
+
+# Save the 6-band PCA output
+outfile = os.path.join('PCA.tif')
+rows = img_open.RasterYSize
+cols = img_open.RasterXSize
+datatype = img_open.GetRasterBand(1).DataType
+projection = img_open.GetProjection()
+transform = img_open.GetGeoTransform()
+driver = gdal.GetDriverByName("GTiff")
+DataSetOut = driver.Create(outfile, cols, rows, 6, datatype)
+DataSetOut.GetRasterBand(1).WriteArray(pca_results[0])
+DataSetOut.GetRasterBand(2).WriteArray(pca_results[1])
+DataSetOut.GetRasterBand(3).WriteArray(pca_results[2])
+DataSetOut.GetRasterBand(4).WriteArray(pca_results[3])
+DataSetOut.GetRasterBand(5).WriteArray(pca_results[4])
+DataSetOut.GetRasterBand(6).WriteArray(pca_results[5])
+DataSetOut.SetProjection(projection)
+DataSetOut.SetGeoTransform(transform)
+DataSetOut = None
+
+#$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+
+#visualising the spectral reflectance curve
+
+pixel1 = img_open.ReadAsArray(200, 200, 1, 1)
+print(pixel1)
+
+pixel1 = img_open.ReadAsArray(200, 200, 1, 1)
+pixel1 = np.reshape(pixel1, (372))
+plt.rcParams['figure.figsize'] = [8, 8]
+plt.plot(pixel1)
+plt.xlabel('Band #', fontsize=20)
+plt.ylabel('Reflectance', fontsize=20)
+plt.show()
+
+
+pixel2 = img_open.ReadAsArray(5, 5, 1, 1)
+pixel2 = np.reshape(pixel2, (372))
+
+pixel2 = img_open.ReadAsArray(5, 5, 1, 1)
+pixel2 = np.reshape(pixel2, (372))
+plt.rcParams['figure.figsize'] = [8, 8]
+plt.plot(pixel2)
+plt.xlabel('Band #', fontsize=20)
+plt.ylabel('Reflectance', fontsize=20)
+plt.show()
+
+#-------------------------------------------------------------
+#visualising the spectral reflectance curve with respect to band wavelengths 
+
+wavelengths = [377.071821 , 382.081821 , 387.091821 , 392.10182100000003 , 397.10182100000003 , 402.11182099999996 , 407.121821 , 412.131821 , 417.14182100000005 , 422.151821 , 427.161821 , 432.171821 , 437.171821 , 442.18182099999996 , 447.191821 , 452.201821 , 457.21182100000004 , 462.221821 , 467.23182099999997 , 472.23182099999997 , 477.241821 , 482.251821 , 487.261821 , 492.271821 , 497.28182100000004 , 502.291821 , 507.30182099999996 , 512.301821 , 517.3118209999999 , 522.321821 , 527.331821 , 532.3418210000001 , 537.351821 , 542.361821 , 547.361821 , 552.3718210000001 , 557.381821 , 562.3918209999999 , 567.401821 , 572.411821 , 577.4218209999999 , 582.431821 , 587.431821 , 592.441821 , 597.451821 , 602.461821 , 607.471821 , 612.4818210000001 , 617.491821 , 622.491821 , 627.501821 , 632.511821 , 637.521821 , 642.5318209999999 , 647.541821 , 652.551821 , 657.561821 , 662.561821 , 667.571821 , 672.581821 , 677.591821 , 682.601821 , 687.611821 , 692.6218210000001 , 697.6218210000001 , 702.631821 , 707.6418209999999 , 712.651821 , 717.661821 , 722.671821 , 727.681821 , 732.691821 , 737.691821 , 742.701821 , 747.711821 , 752.721821 , 757.7318210000001 , 762.741821 , 767.751821 , 772.751821 , 777.761821 , 782.7718209999999 , 787.781821 , 792.791821 , 797.801821 , 802.811821 , 807.821821 , 812.821821 , 817.831821 , 822.841821 , 827.851821 , 832.861821 , 837.8718210000001 , 842.881821 , 847.881821 , 852.891821 , 857.901821 , 862.9118209999999 , 867.921821 , 872.931821 , 877.941821 , 882.951821 , 887.951821 , 892.961821 , 897.971821 , 902.981821 , 907.991821 , 913.0018210000001 , 918.011821 , 923.0218209999999 , 928.0218209999999 , 933.031821 , 938.041821 , 943.0518209999999 , 948.061821 , 953.071821 , 958.081821 , 963.081821 , 968.091821 , 973.101821 , 978.1118210000001 , 983.121821 , 988.131821 , 993.141821 , 998.151821 , 1003.1518210000002 , 1008.161821 , 1013.171821 , 1018.181821 , 1023.1918209999999 , 1028.2018209999999 , 1033.211821 , 1038.2118209999999 , 1043.2218209999999 , 1048.2318209999999 , 1053.241821 , 1058.251821 , 1063.261821 , 1068.271821 , 1073.2818209999998 , 1078.281821 , 1083.291821 , 1088.301821 , 1093.311821 , 1098.321821 , 1103.331821 , 1108.341821 , 1113.341821 , 1118.351821 , 1123.361821 , 1128.371821 , 1133.381821 , 1138.391821 , 1143.4018210000002 , 1148.4118210000001 , 1153.411821 , 1158.421821 , 1163.4318210000001 , 1168.4418210000001 , 1173.451821 , 1178.4618209999999 , 1183.4718209999999 , 1188.471821 , 1193.481821 , 1198.4918209999998 , 1203.5018209999998 , 1208.511821 , 1213.521821 , 1218.531821 , 1223.541821 , 1228.541821 , 1233.551821 , 1238.561821 , 1243.571821 , 1248.581821 , 1253.5918210000002 , 1258.601821 , 1263.601821 , 1268.611821 , 1273.6218210000002 , 1278.631821 , 1283.641821 , 1288.651821 , 1293.661821 , 1298.671821 , 1303.671821 , 1308.681821 , 1313.691821 , 1318.701821 , 1323.711821 , 1328.721821 , 1333.731821 , 1338.731821 , 1343.741821 , 1348.751821 , 1353.761821 , 1358.771821 , 1363.7818209999998 , 1368.791821 , 1373.801821 , 1378.801821 , 1383.811821 , 1388.821821 , 1393.831821 , 1398.841821 , 1403.851821 , 1408.861821 , 1413.861821 , 1418.871821 , 1423.881821 , 1428.891821 , 1433.9018210000002 , 1438.9118210000001 , 1443.921821 , 1448.931821 , 1453.9318210000001 , 1458.9418210000001 , 1463.9518209999999 , 1468.9618209999999 , 1473.9718209999999 , 1478.981821 , 1483.991821 , 1488.9918209999998 , 1494.0018209999998 , 1499.011821 , 1504.021821 , 1509.031821 , 1514.041821 , 1519.051821 , 1524.061821 , 1529.061821 , 1534.071821 , 1539.081821 , 1544.091821 , 1549.101821 , 1554.111821 , 1559.121821 , 1564.1218210000002 , 1569.131821 , 1574.141821 , 1579.151821 , 1584.161821 , 1589.1718210000001 , 1594.1818210000001 , 1599.1918210000001 , 1604.191821 , 1609.201821 , 1614.211821 , 1619.221821 , 1624.2318209999999 , 1629.2418209999998 , 1634.251821 , 1639.251821 , 1644.261821 , 1649.2718209999998 , 1654.281821 , 1659.291821 , 1664.301821 , 1669.311821 , 1674.321821 , 1679.321821 , 1684.331821 , 1689.341821 , 1694.351821 , 1699.3618210000002 , 1704.371821 , 1709.381821 , 1714.381821 , 1719.3918210000002 , 1724.4018210000002 , 1729.411821 , 1734.421821 , 1739.431821 , 1744.441821 , 1749.451821 , 1754.4518209999999 , 1759.4618209999999 , 1764.471821 , 1769.481821 , 1774.491821 , 1779.501821 , 1784.511821 , 1789.511821 , 1794.521821 , 1799.531821 , 1804.541821 , 1809.5518209999998 , 1814.561821 , 1819.571821 , 1824.581821 , 1829.5818210000002 , 1834.591821 , 1839.601821 , 1844.611821 , 1849.621821 , 1854.631821 , 1859.6418210000002 , 1864.6518210000002 , 1869.651821 , 1874.661821 , 1879.6718210000001 , 1884.6818210000001 , 1889.691821 , 1894.7018209999999 , 1899.7118209999999 , 1904.711821 , 1909.721821 , 1914.7318209999999 , 1919.7418209999998 , 1924.751821 , 1929.761821 , 1934.771821 , 1939.781821 , 1944.781821 , 1949.791821 , 1954.801821 , 1959.811821 , 1964.821821 , 1969.831821 , 1974.841821 , 1979.841821 , 1984.851821 , 1989.8618210000002 , 1994.871821 , 1999.881821 , 2004.8918210000002 , 2009.9018210000002 , 2014.9118210000001 , 2019.911821 , 2024.921821 , 2029.931821 , 2034.941821 , 2039.9518209999999 , 2044.9618209999999 , 2049.971821 , 2054.971821 , 2059.981821 , 2064.991821 , 2070.001821 , 2075.011821 , 2080.021821 , 2085.031821 , 2090.041821 , 2095.0418210000003 , 2100.051821 , 2105.0618210000002 , 2110.071821 , 2115.0818209999998 , 2120.091821 , 2125.1018209999997 , 2130.1018209999997 , 2135.111821 , 2140.121821 , 2145.131821 , 2150.141821 , 2155.151821 , 2160.161821 , 2165.171821 , 2170.171821 , 2175.1818209999997 , 2180.1918210000003 , 2185.201821 , 2190.2118210000003 , 2195.221821 , 2200.231821 , 2205.231821 , 2210.241821 , 2215.251821 , 2220.2618209999996 , 2225.2718210000003 , 2230.281821,2234.281821 ]
+bblist = np.ones((372,))
+
+# Re-plot with the bad bands list and wavelengths applied
+pixel2 = img_open.ReadAsArray(205, 205, 1, 1)
+pixel2 = np.reshape(pixel2, (372))
+
+
+# Compare vegetation and water spectra
+plt.plot(wavelengths, pixel1, color = 'g')
+plt.plot(wavelengths, pixel2, color = 'b')
+plt.xlabel('Wavelength (nm)', fontsize=20)
+plt.ylabel('Reflectance', fontsize=20)
+plt.show()
+
+
+#------------------------------------------
+#visualising the all spectral reflectance curves with respect to band wavelengths 
+
+# # Read image dimensions
+# rows = img_open.RasterYSize
+# cols = img_open.RasterXSize
+
+# # Initialize an empty list to store all pixel values
+# pixels = []
+
+# # Loop over all pixels and append their reflectance values to the list
+# for row in range(rows):
+#     for col in range(cols):
+#         pixel = img_open.ReadAsArray(col, row, 1, 1)
+#         pixel = np.reshape(pixel, (372))
+#         pixels.append(pixel)
+
+# # Convert the list of pixel values to a numpy array
+# pixels = np.array(pixels)
+
+# # Plot the reflectance spectra of all pixels
+# plt.rcParams['figure.figsize'] = [8, 8]
+# for i in range(len(pixels)):
+#     plt.plot(wavelengths, pixels[i], color='k', alpha=0.1)
+
+# plt.xlabel('Wavelength (nm)', fontsize=20)
+# plt.ylabel('Reflectance', fontsize=20)
+# plt.show()
+
+
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#visualising the all spectral reflectance curves with respect to band wavelengths 
+rows = img_open.RasterYSize
+cols = img_open.RasterXSize
+
+# Initialize an empty list to store all pixel values
+pixels = []
+
+# Loop over all pixels and append their reflectance values to the list
+for row in range(rows):
+    for col in range(cols):
+        pixel = img_open.ReadAsArray(col, row, 1, 1)
+        pixel = np.reshape(pixel, (372))
+        pixels.append(pixel)
+
+# Convert the list of pixel values to a numpy array
+pixels = np.array(pixels)
+
+# Define a colormap for the plot
+cmap = plt.get_cmap('jet')
+
+# Plot the reflectance spectra of all pixels
+plt.rcParams['figure.figsize'] = [8, 8]
+for i in range(len(pixels)):
+    plt.plot(wavelengths, pixels[i], color=cmap(i/len(pixels)), alpha=0.5)
+
+plt.xlabel('Wavelength (nm)', fontsize=20)
+plt.ylabel('Reflectance', fontsize=20)
+plt.show()
+#saving the data
+import pandas as pd
+
+# Read image dimensions
+rows = img_open.RasterYSize
+cols = img_open.RasterXSize
+
+# Initialize an empty list to store all pixel values
+pixels = []
+
+# Loop over all pixels and append their reflectance values to the list
+for row in range(rows):
+    for col in range(cols):
+        pixel = img_open.ReadAsArray(col, row, 1, 1)
+        pixel = np.reshape(pixel, (372))
+        pixels.append(pixel)
+
+# Convert the list of pixel values to a pandas dataframe
+df = pd.DataFrame(pixels, columns=wavelengths)
+
+# Save the dataframe to an Excel file
+df.to_excel('pixel_reflectance.xlsx', index=False)
+
+#&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+# Extract RGB bands and save as a 3-band GeoTiff to visualize in QGIS
+red = img_open.GetRasterBand(57).ReadAsArray()
+green = img_open.GetRasterBand(38).ReadAsArray()
+blue = img_open.GetRasterBand(22).ReadAsArray()
+print(wavelengths[21])
+print(wavelengths[37])
+print(wavelengths[56])
+
+outfile = os.path.join('RGB.tif')
+rows = img_open.RasterYSize
+cols = img_open.RasterXSize
+datatype = img_open.GetRasterBand(1).DataType
+projection = img_open.GetProjection()
+transform = img_open.GetGeoTransform()
+driver = gdal.GetDriverByName("GTiff")
+DataSetOut = driver.Create(outfile, cols, rows, 3, datatype)
+DataSetOut.GetRasterBand(1).WriteArray(blue)
+DataSetOut.GetRasterBand(2).WriteArray(green)
+DataSetOut.GetRasterBand(3).WriteArray(red)
+DataSetOut.SetProjection(projection)
+DataSetOut.SetGeoTransform(transform)
+DataSetOut = None
+
+#------------------------------------------
+# Open  Red and NIR bands for creating the NDVI image
+img_open = gdal.Open(file)
+red = img_open.GetRasterBand(57).ReadAsArray()
+nir = img_open.GetRasterBand(99).ReadAsArray()
+
+mask = np.ones(np.shape(red))
+mask[red == -9999] = 0
+
+plt.imshow(mask)
+plt.show()
+
+# Create an NDVI image
+ndvi = (nir - red) / (nir + red)
+ndvi[mask == 0] = -9999
+
+plt.imshow(ndvi, vmin = -1, vmax = 1, cmap='RdYlGn')
+plt.colorbar()
+plt.title('NDVI', fontsize=20)
+plt.show()
+
+# Export the image as a GeoTIFF
+outfile = os.path.join( 'NDVI.tif')
+rows = img_open.RasterYSize
+cols = img_open.RasterXSize
+datatype = img_open.GetRasterBand(1).DataType
+projection = img_open.GetProjection()
+transform = img_open.GetGeoTransform()
+driver = gdal.GetDriverByName("GTiff")
+DataSetOut = driver.Create(outfile, cols, rows, 1, datatype)
+DataSetOut.GetRasterBand(1).WriteArray(ndvi)
+DataSetOut.SetProjection(projection)
+DataSetOut.SetGeoTransform(transform)
+DataSetOut = None
+
+# Plot a histogram of the NDVI data
+ndvi_vals = ndvi[mask == 1]
+plt.hist(ndvi_vals, bins=100)
+plt.ylabel('Count', fontsize=20)
+plt.xlabel('NDVI', fontsize=20)
+plt.show()
+
+# Set a threshold for a density slice to mask land/water
+dns_slc = np.zeros(np.shape(ndvi))
+dns_slc[ndvi > 0.05] = 1
+dns_slc[mask == 0] = -9999
+
+plt.imshow(dns_slc, vmin=0)
+plt.show()
+
+# Export the land/water mask as a GeoTIFF
+outfile2 = os.path.join('NDVI_mask.tif')
+driver = gdal.GetDriverByName("GTiff")
+DataSetOut = driver.Create(outfile2, cols, rows, 1, datatype)
+DataSetOut.GetRasterBand(1).WriteArray(dns_slc)
+DataSetOut.SetProjection(projection)
+DataSetOut.SetGeoTransform(transform)
+DataSetOut = None
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#Active Learning
+
+
+data = rasterio.open('Anand.tif')
+data=data.read()
+new_data = data.reshape(data.shape[0],-1).T
+
+new_data.shape
+#(76176, 372)
+
+new_data[0].shape
+#(372,)
+def applyPCA(X, numComponents=75):
+    pca = PCA(n_components=numComponents, whiten=True)
+    newX = pca.fit_transform(X)
+    #newX = np.reshape(newX, (X.shape[0],X.shape[1], numComponents))
+    return newX, pca
+
+K=6
+data_matrix,pca = applyPCA(new_data,numComponents=K)
+
+data_matrix[0].shape
+#(6,)
+new_data_pca = data_matrix.reshape(276,276,6)
+
+new_data_pca.shape
+#(276, 276, 6)
+new_data_pca[:,:,0].shape
+#(276, 276)
+
+# to visualise the hyperspectral data we need to normalize the bands
+
+def normalize(band):
+    mx,mn = band.max(),band.min()
+    return (band - mn)/(mx - mn)
+r = normalize(new_data_pca[:,:,1])
+g = normalize(new_data_pca[:,:,2])
+b = normalize(new_data_pca[:,:,3])
+
+fcc = np.dstack((r,g,b))
+
+plt.imshow(fcc, cmap='jet')
+plt.colorbar()
+# show the plot
+plt.show()
+#----------------------------------------------------------------
+gt_matrix = rasterio.open('Anand_gt.tif').read()
+gt_matrix.shape
+#(1, 276, 276)
+
+gt_matrix[0].shape
+#(276, 276)
+plt.imshow(gt_matrix[0])
+
+
+plt.imshow(gt_matrix[0], cmap='jet')
+plt.colorbar()
+# show the plot
+plt.show()
+
+gt_matrix.min()#0
+gt_matrix.max()#12
+
+
+# gt_matrix_pred=gt_matrix.reshape(276*276)
+#=======================================================
+train = []
+for i in range(new_data_pca[:,:,0].shape[0]):
+    for j in range((new_data_pca[:,:,0].shape[0])):
+                   if gt_matrix[0][i][j] != 0:
+                       tem = list(new_data_pca[i,j,:])
+                       tem.append(gt_matrix[0][i][j])
+                       train.append(tem)
+                       
+
+train = np.array(train)
+
+X = train[:,:6]
+y = train[:,6]
+#----------------------------------------------------
+# np.unique(gt_matrix)
+# #array([ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16],
+# #       dtype=uint8)
+
+# data_matrix=data_matrix.reshape(-1, data_matrix.shape[2])
+
+
+# gt_matrix=gt_matrix.reshape(276*276)
+
+
+# split the dataset into a labeled set and an unlabeled pool set
+# X_labeled, X_pool, y_labeled, y_pool = train_test_split(
+#     X, y, test_size=0.3,stratify=gt_matrix)
+#----------------------------------------------------------
+X_labeled, X_pool, y_labeled, y_pool = train_test_split(
+    X, y, test_size=0.3)
+
+
+svm = SVC(kernel='rbf', C=1, gamma='scale', probability=True)
+learner = ActiveLearner(
+    estimator=svm,
+    X_training=X_labeled, y_training=y_labeled,
+    query_strategy=uncertainty_sampling)
+
+#--------------------------------------------------------------
+# initialize a random forest classifier as the learner
+# learner = ActiveLearner(
+#     estimator=RandomForestClassifier(n_estimators=100),
+#     X_training=X_labeled, y_training=y_labeled,
+#     query_strategy=uncertainty_sampling)
+
+# set the number of iterations for the active learning loop
+#--------------------------------------------------------------
+n_iterations = 10
+
+for i in range(n_iterations):
+    # query the learner for the most informative instance to label
+    query_idx, query_instance = learner.query(X_pool)
+
+    # label the queried instance and add it to the labeled set
+    X_labeled = np.vstack((X_labeled, X_pool[query_idx]))
+    y_labeled = np.append(y_labeled, y_pool[query_idx])
+
+    # remove the queried instance from the pool set
+    X_pool = np.delete(X_pool, query_idx, axis=0)
+    y_pool = np.delete(y_pool, query_idx)
+
+    # reinitialize the learner with the updated labeled set
+    learner = ActiveLearner(
+        estimator=RandomForestClassifier(n_estimators=100),
+        X_training=X_labeled, y_training=y_labeled,
+        query_strategy=uncertainty_sampling)
+
+    # train the learner on the updated labeled set
+    learner.fit(X_labeled, y_labeled)
+
+    # use the trained learner to predict the labels of the remaining unlabeled data
+    y_pred = learner.predict(X_pool)
+
+    # calculate the accuracy of the learner on the remaining unlabeled data
+    accuracy = accuracy_score(y_pool, y_pred)
+
+    print(f"Iteration {i+1}: Accuracy = {accuracy:.3f}")
+#--------------------------------------------------------------
+# calculate the accuracy of the learner on the entire dataset
+new_data_pca = new_data_pca.reshape(-1,6)
+
+new_data_pca.shape
+#(76176, 6)
+new_data_pca[0].shape
+#(6,)
+y_pred = learner.predict(new_data_pca)
+y_pred.shape
+#(76176,)
+y_pred_v = y_pred.reshape(276,276)
+plt.imshow(y_pred_v,cmap='jet')
+
+
+plt.imshow(y_pred_v, cmap='jet')
+plt.colorbar()
+# show the plot
+plt.show()
+
+#$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+y_pred1 = learner.predict(X)
+gt_matrix_pred=y
+
+
+print(f'Test Accuracy: {accuracy_score(gt_matrix_pred, y_pred1)}')
+print(f'Confusion Matrix:\n{confusion_matrix(gt_matrix_pred, y_pred1)}')
+#------------------------------------------------------------------------
+
+# Visualize the point cloud
+target_names = ['Water', 'non crop land', 'Crop land', 'Road'
+                ,'vegetation', 'Urban vacant land']
+
+print(classification_report(gt_matrix_pred, y_pred1, labels=np.unique(y), zero_division=1))
+
+print(f'Test Accuracy: {accuracy_score(gt_matrix_pred, y_pred1)}')
+print(f'Confusion Matrix:\n{confusion_matrix(gt_matrix_pred, y_pred1)}')
+
+#---------------------------------------------------------------------
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
+
+target_names = ['Water', 'urban', 'Crop land', 'non crop land'
+                ,'vegetation', 'Urban vacant land']
+
+# Assuming gt_matrix_pred and y_pred1 are your ground truth and predicted labels, respectively
+print(classification_report(gt_matrix_pred, y_pred1, labels=np.unique(y), target_names=target_names, zero_division=1))
+
+print(f'Test Accuracy: {accuracy_score(gt_matrix_pred, y_pred1)}')
+
+# Plot the confusion matrix
+conf_matrix = confusion_matrix(gt_matrix_pred, y_pred1, labels=np.unique(y))
+sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=target_names, yticklabels=target_names)
+plt.xlabel('Predicted Labels')
+plt.ylabel('True Labels')
+plt.title('Confusion Matrix')
+plt.show()
+
+#--------------------------------------------------------------------------
+from sklearn.metrics import roc_auc_score,roc_curve, auc
+from sklearn.preprocessing import LabelBinarizer
+
+# assume y_test and y_pred are the true and predicted labels respectively
+# convert the labels to one-hot encoded form
+lb = LabelBinarizer()
+lb.fit(gt_matrix_pred)
+y_test_one_hot = lb.transform(gt_matrix_pred)
+y_pred_one_hot = lb.transform(y_pred1)
+
+# compute the AUROC score
+auroc = roc_auc_score(y_test_one_hot, y_pred_one_hot, multi_class='ovo')
+print(f"AUROC score: {auroc}")
+
+# compute the ROC curve for each class
+fpr = dict()
+tpr = dict()
+roc_auc = dict()
+n_classes = y_test_one_hot.shape[1]
+for i in range(n_classes):
+    fpr[i], tpr[i], _ = roc_curve(y_test_one_hot[:, i], y_pred_one_hot[:, i])
+    roc_auc[i] = auc(fpr[i], tpr[i])
+
+# compute micro-average ROC curve and ROC area
+fpr["micro"], tpr["micro"], _ = roc_curve(y_test_one_hot.ravel(), y_pred_one_hot.ravel())
+roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
+
+# plot the ROC curves
+plt.figure()
+lw = 2
+plt.plot(fpr["micro"], tpr["micro"], color='darkorange', lw=lw, label='micro-average ROC curve (area = {0:0.2f})'
+                                               ''.format(roc_auc["micro"]))
+for i in range(n_classes):
+    plt.plot(fpr[i], tpr[i], lw=lw, label='ROC curve of class {0} (area = {1:0.2f})'
+                                           ''.format(i, roc_auc[i]))
+plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver operating characteristic example')
+plt.legend(loc="lower right")
+plt.show()
+#===============================================
